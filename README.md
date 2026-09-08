@@ -2,7 +2,7 @@
 
 Run a lot more iOS simulators on one Mac by turning off the background daemons a simulator doesn't need.
 
-A freshly booted iOS simulator starts around 180 background services: Siri, Spotlight indexing, photo analysis, News, wallpaper posters, iCloud sync, and so on. None of it matters when you're using the simulator for development, testing, or CI. simslim switches those services off, which roughly halves to a third of each simulator's memory (see [Numbers](#numbers) below for the exact range by device and runtime). On the same laptop you go from a handful of simulators to a screenful.
+A freshly booted iOS simulator starts around 180 background services: Siri, Spotlight indexing, photo analysis, News, wallpaper posters, iCloud sync, and so on. None of it matters when you're using the simulator for development, testing, or CI. simslim switches those services off, which typically cuts each simulator's memory by more than half (see [Numbers](#numbers) below; it varies by device, runtime, and Mac). On the same laptop you go from a handful of simulators to a screenful.
 
 https://github.com/user-attachments/assets/f4665e41-43b4-49cd-9388-3da533e9fd7b
 
@@ -10,24 +10,32 @@ https://github.com/user-attachments/assets/f4665e41-43b4-49cd-9388-3da533e9fd7b
 
 ## Numbers
 
-Measured with `simslim benchmark --runs 5` across four simulators spanning
+Measured with `simslim benchmark --runs 3` across four simulators spanning
 different device classes and iOS runtimes, on an Apple M1 Max running macOS
-26.6.2 / Xcode 26.2 (2026-09-08). Each row is the mean of 5 stock/slim
-measurement pairs; "Ratio" is stock mean ÷ slim mean.
+26.6.2 / Xcode 26.2 (2026-09-08). Each row is the mean of 3 stock/slim
+measurement pairs, each pair sampled only once its footprint stops climbing
+(a fresh boot keeps starting daemons for minutes after `simctl` calls it
+booted; sampling immediately understates stock far more than slim, since
+stock has so much more left to start). "Ratio" is stock mean ÷ slim mean.
 
-| Simulator | iOS | Stock (mean) | Slim (mean) | Ratio |
+| Simulator | iOS | Stock (mean, range) | Slim (mean, range) | Ratio |
 |---|---|---|---|---|
-| iPhone 16 Pro | 18.6 | 1.96 GB | 0.87 GB | 2.26x |
-| iPhone 17 Pro | 26.2 | 2.53 GB | 0.99 GB | 2.55x |
-| iPhone 17 Pro | 27.0 | 0.64 GB | 0.31 GB | 2.02x |
-| iPad Pro 13-inch (M5) | 26.4 | 2.24 GB | 0.82 GB | 2.73x |
-| **Fleet total (mean)** | n/a | **7.36 GB** | **3.00 GB** | **2.46x** |
+| iPhone 16 Pro | 18.6 | 3.11 GB (3.06-3.21) | 1.13 GB (1.12-1.13) | 2.76x |
+| iPhone 17 Pro | 26.2 | 3.77 GB (3.65-3.90) | 1.08 GB (1.07-1.08) | 3.50x |
+| iPhone 17 Pro | 27.0 | 1.79 GB (1.50-1.95) | 0.62 GB (0.57-0.66) | 2.87x |
+| iPad Pro 13-inch (M5) | 26.4 | 3.02 GB (2.89-3.10) | 0.93 GB (0.92-0.95) | 3.25x |
+| **Fleet total (mean)** | n/a | **11.69 GB** | **3.75 GB** | **3.11x** |
 
-The reduction varies by device and runtime: there's no single multiplier that
-holds everywhere. Reproduce this on your own machine and fleet:
+The reduction varies by device, runtime, and by Mac: a PR reviewer measuring
+the same iOS 26.5/27.0 device classes on their own machine got 4.2x-4.4x once
+both legs were fully settled, higher than this table's 2.8x-3.5x. Absolute
+daemon footprints (and how many daemons a given account/network state spins
+up) aren't identical across every Mac and iOS build, so there's no single
+multiplier that holds everywhere. Reproduce this on your own machine and
+fleet:
 
 ```sh
-simslim benchmark <udid> [<udid> ...] --runs 5
+simslim benchmark <udid> [<udid> ...] --runs 3
 ```
 
 Memory here is phys_footprint, the figure Activity Monitor shows, which counts compressed and swapped pages. That's what decides how many simulators fit before the machine starts swapping. Run `simslim measure <udid>` to see it for any booted simulator.
@@ -345,11 +353,13 @@ runtimes are still read back after the reboot, and the command fails instead of
 claiming success if any requested override was lost.
 
 `simslim benchmark` measures the memory claim directly: for each simulator you
-give it, it does one uncounted warm-up boot (so first-boot migrators and
-indexing don't inflate the first sample), then boots stock, measures, slims,
-measures again (repeating `--runs` times) before restoring the device to
-stock. It's a maintainer/verification tool rather than a daily driver: point
-it at a few already-created simulators spanning the runtimes you care about.
+give it, it boots stock, waits for the footprint to stop climbing (a fresh
+boot keeps starting daemons well after `simctl` calls it booted, so sampling
+immediately would understate stock far more than slim), measures, slims,
+settles and measures again (repeating `--runs` times) before restoring the
+device to stock. It's a maintainer/verification tool rather than a daily
+driver: point it at a few already-created simulators spanning the runtimes
+you care about.
 
 This is per-simulator state, not a global setting. The daemon disables live in
 that one simulator's launchd database and nowhere else. `simslim clone` copies
