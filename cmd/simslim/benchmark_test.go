@@ -64,6 +64,34 @@ func TestFormatStats(t *testing.T) {
 	}
 }
 
+func TestAvgDuration(t *testing.T) {
+	tests := []struct {
+		name    string
+		seconds []float64
+		want    string
+	}{
+		{name: "no samples", seconds: nil, want: "—"},
+		{name: "single sample", seconds: []float64{90}, want: "1m30s"},
+		{name: "averages and rounds to the nearest second", seconds: []float64{10, 20, 21}, want: "17s"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := avgDuration(tt.seconds); got != tt.want {
+				t.Errorf("avgDuration(%v) = %q, want %q", tt.seconds, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatSettle(t *testing.T) {
+	got := formatSettle([]float64{120, 140}, []float64{20, 30})
+	want := "2m10s / 25s"
+	if got != want {
+		t.Errorf("formatSettle() = %q, want %q", got, want)
+	}
+}
+
 func TestCmdBenchmarkRequiresUDIDs(t *testing.T) {
 	if err := runApp(t, "benchmark"); err == nil {
 		t.Fatal("benchmark with no UDIDs: want error, got nil")

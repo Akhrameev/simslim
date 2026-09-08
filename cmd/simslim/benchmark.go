@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	cli "github.com/urfave/cli/v3"
 
@@ -36,20 +37,17 @@ func cmdBenchmark(ctx context.Context, cmd *cli.Command) error {
 }
 
 func printBenchmark(out simslim.BenchmarkOutput, runs int) {
-	fmt.Printf("%-30s %-10s %-24s %-24s %8s\n", "SIMULATOR", "COLD BOOT", "STOCK", "SLIM", "RATIO")
+	fmt.Printf("%-30s %-24s %-24s %8s  %s\n", "SIMULATOR", "STOCK", "SLIM", "RATIO", "SETTLE (stock/slim)")
 	for _, d := range out.Devices {
 		name := truncate(fmt.Sprintf("%s · %s", d.Name, shortUDID(d.UDID)), 30)
 		if d.Error != "" && len(d.Stock.Samples) == 0 {
 			fmt.Printf("%-30s error: %s\n", name, d.Error)
 			continue
 		}
-		coldBoot := "—"
-		if d.FirstBootBytes > 0 {
-			coldBoot = humanBytes(d.FirstBootBytes)
-		}
-		fmt.Printf("%-30s %-10s %-24s %-24s %8s\n", name, coldBoot,
+		fmt.Printf("%-30s %-24s %-24s %8s  %s\n", name,
 			formatStats(d.Stock, runs), formatStats(d.Slim, runs),
-			benchmarkRatio(d.Stock.MeanBytes, d.Slim.MeanBytes))
+			benchmarkRatio(d.Stock.MeanBytes, d.Slim.MeanBytes),
+			formatSettle(d.Stock.SettleSeconds, d.Slim.SettleSeconds))
 		if d.Error != "" {
 			fmt.Printf("  %d/%d runs completed; stopped early: %s\n", len(d.Stock.Samples), runs, d.Error)
 		}
@@ -57,6 +55,25 @@ func printBenchmark(out simslim.BenchmarkOutput, runs int) {
 	fmt.Printf("\nFleet total (mean): %s stock -> %s slim (%s)\n",
 		humanBytes(out.TotalStockBytes), humanBytes(out.TotalSlimBytes),
 		benchmarkRatio(out.TotalStockBytes, out.TotalSlimBytes))
+}
+
+// formatSettle renders the average time each leg took to stop growing
+// before it was sampled, so a slow-to-settle device is visible rather than
+// hidden behind a single early reading.
+func formatSettle(stockSeconds, slimSeconds []float64) string {
+	return fmt.Sprintf("%s / %s", avgDuration(stockSeconds), avgDuration(slimSeconds))
+}
+
+func avgDuration(seconds []float64) string {
+	if len(seconds) == 0 {
+		return "—"
+	}
+	var sum float64
+	for _, s := range seconds {
+		sum += s
+	}
+	avg := time.Duration(sum / float64(len(seconds)) * float64(time.Second))
+	return avg.Round(time.Second).String()
 }
 
 // formatStats renders a device's mean footprint, appending the min-max range
