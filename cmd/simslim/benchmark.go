@@ -51,10 +51,26 @@ func printBenchmark(out simslim.BenchmarkOutput, runs int) {
 		if d.Error != "" {
 			fmt.Printf("  %d/%d runs completed; stopped early: %s\n", len(d.Stock.Samples), runs, d.Error)
 		}
+		if n := countUnsettled(d.Stock.Settled) + countUnsettled(d.Slim.Settled); n > 0 {
+			fmt.Printf("  %d sample(s) hit the settle cap still climbing; treat this device's numbers with caution\n", n)
+		}
 	}
 	fmt.Printf("\nFleet total (mean): %s stock -> %s slim (%s)\n",
 		humanBytes(out.TotalStockBytes), humanBytes(out.TotalSlimBytes),
 		benchmarkRatio(out.TotalStockBytes, out.TotalSlimBytes))
+}
+
+// countUnsettled counts the samples that hit settleMaxWait without ever
+// genuinely flattening, so their reading is just a last poll, not a
+// confirmed plateau.
+func countUnsettled(settled []bool) int {
+	n := 0
+	for _, ok := range settled {
+		if !ok {
+			n++
+		}
+	}
+	return n
 }
 
 // formatSettle renders the average time each leg took to stop growing

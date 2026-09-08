@@ -10,7 +10,8 @@ import (
 // device/state (stock or slim) across a benchmark's runs.
 type MemoryStats struct {
 	Samples       []int64   `json:"samples"`                 // bytes, one per run, in order
-	SettleSeconds []float64 `json:"settleSeconds,omitempty"` // how long each sample took to stop growing, parallel to Samples
+	SettleSeconds []float64 `json:"settleSeconds,omitempty"` // how long each sample took to settle (or hit the cap), parallel to Samples
+	Settled       []bool    `json:"settled,omitempty"`       // whether each sample genuinely stopped growing before the settle cap, parallel to Samples
 	MinBytes      int64     `json:"minBytes"`
 	MeanBytes     int64     `json:"meanBytes"`
 	MaxBytes      int64     `json:"maxBytes"`
@@ -104,6 +105,7 @@ func benchmarkDevice(ctx context.Context, udid string, runs int, preserveBootSta
 
 	var stockSamples, slimSamples []int64
 	var stockSettle, slimSettle []float64
+	var stockSettled, slimSettled []bool
 	var runErr error
 	for i := 0; i < runs && runErr == nil; i++ {
 		report.report(fmt.Sprintf("%s: run %d/%d: establishing stock baseline...", udid, i+1, runs))
@@ -130,14 +132,18 @@ func benchmarkDevice(ctx context.Context, udid string, runs int, preserveBootSta
 
 		stockSamples = append(stockSamples, stock.Bytes)
 		stockSettle = append(stockSettle, stock.SettleSeconds)
+		stockSettled = append(stockSettled, stock.Settled)
 		slimSamples = append(slimSamples, slim.Bytes)
 		slimSettle = append(slimSettle, slim.SettleSeconds)
+		slimSettled = append(slimSettled, slim.Settled)
 	}
 
 	stockStats := computeStats(stockSamples)
 	stockStats.SettleSeconds = stockSettle
+	stockStats.Settled = stockSettled
 	slimStats := computeStats(slimSamples)
 	slimStats.SettleSeconds = slimSettle
+	slimStats.Settled = slimSettled
 
 	res := BenchmarkResult{Device: d, Stock: stockStats, Slim: slimStats}
 
@@ -166,18 +172,30 @@ func benchmarkDevice(ctx context.Context, udid string, runs int, preserveBootSta
 // real plateau and stop far too early. settled() instead requires the whole
 // trailing settleWindow to show under settleThreshold growth, not just the
 // latest step, so a burst anywhere in that window keeps polling going.
+//
+// A short window or loose threshold is still easy to fool on a slower
+// runtime: a footprint climbing as little as ~1.2% every 30s only totals
+// ~2.4% growth across a single 60-second span, so a check that settles for
+// anything under a couple of percent over a minute can call that settled
+// while it still has real growth ahead of it. Requiring a full 2 minutes at
+// under 1% forces that same slow creep to hold flat across four consecutive
+// 30s polls, not just two, which a genuine plateau does and a still-climbing
+// tail does not.
 const (
 	settlePollInterval = 15 * time.Second
-	settleWindow       = 60 * time.Second // require this much trailing time to look flat
-	settleThreshold    = 0.02             // treat under 2% growth across settleWindow as settled
-	settleMaxWait      = 6 * time.Minute
+	settleWindow       = 120 * time.Second // require this much trailing time to look flat
+	settleThreshold    = 0.01              // treat under 1% growth across settleWindow as settled
+	settleMaxWait      = 10 * time.Minute
 )
 
-// settleMeasurement is a stabilized measurement: the settled footprint plus
-// how long it took to stop growing.
+// settleMeasurement is a stabilized measurement: the settled footprint, how
+// long it took to stop growing, and whether it actually stopped growing
+// (false means settleMaxWait ran out first and Bytes is just the last
+// reading, not a confirmed plateau).
 type settleMeasurement struct {
 	Measurement
 	SettleSeconds float64
+	Settled       bool
 }
 
 // settleSample is one poll's footprint, timestamped relative to when
@@ -235,6 +253,7 @@ func settleMeasure(ctx context.Context, udid, label string, report Reporter) (se
 		return settleMeasurement{}, err
 	}
 	history := []settleSample{{at: 0, bytes: m.Bytes}}
+	isSettled := false
 	for time.Since(start) < settleMaxWait {
 		select {
 		case <-ctx.Done():
@@ -250,10 +269,14 @@ func settleMeasure(ctx context.Context, udid, label string, report Reporter) (se
 		history = append(history, settleSample{at: elapsed, bytes: m.Bytes})
 		report.report(fmt.Sprintf("%s: %s settling... %.2f GB at %s", udid, label, float64(m.Bytes)/(1<<30), elapsed.Round(time.Second)))
 		if settled(history) {
+			isSettled = true
 			break
 		}
 	}
-	return settleMeasurement{Measurement: m, SettleSeconds: time.Since(start).Seconds()}, nil
+	if !isSettled {
+		report.report(fmt.Sprintf("%s: %s did not settle within %s; using the last reading (%.2f GB) as-is, but it may still be climbing", udid, label, settleMaxWait, float64(m.Bytes)/(1<<30)))
+	}
+	return settleMeasurement{Measurement: m, SettleSeconds: time.Since(start).Seconds(), Settled: isSettled}, nil
 }
 
 // restoreBenchmarkDevice returns a benchmarked device to stock and, if

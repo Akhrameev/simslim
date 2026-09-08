@@ -92,6 +92,27 @@ func TestFormatSettle(t *testing.T) {
 	}
 }
 
+func TestCountUnsettled(t *testing.T) {
+	tests := []struct {
+		name    string
+		settled []bool
+		want    int
+	}{
+		{name: "no samples", settled: nil, want: 0},
+		{name: "all settled", settled: []bool{true, true, true}, want: 0},
+		{name: "one hit the cap", settled: []bool{true, false, true}, want: 1},
+		{name: "all hit the cap", settled: []bool{false, false}, want: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := countUnsettled(tt.settled); got != tt.want {
+				t.Errorf("countUnsettled(%v) = %d, want %d", tt.settled, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCmdBenchmarkRequiresUDIDs(t *testing.T) {
 	if err := runApp(t, "benchmark"); err == nil {
 		t.Fatal("benchmark with no UDIDs: want error, got nil")

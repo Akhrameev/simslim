@@ -116,48 +116,60 @@ func TestSettled(t *testing.T) {
 		{name: "empty history", history: nil, want: false},
 		{
 			name:    "not enough time elapsed yet, even if flat so far",
-			history: samples(0, 1000, 15, 1000, 30, 1000),
+			history: samples(0, 1000, 30, 1000, 60, 1000, 90, 1000),
 			want:    false,
 		},
 		{
 			name: "still climbing across the trailing window",
-			// last 60s (75->135) grows 1155->1180, 2.16%: over threshold.
-			history: samples(0, 1000, 15, 1050, 30, 1090, 45, 1120, 60, 1140, 75, 1155, 90, 1165, 105, 1172, 120, 1177, 135, 1180),
+			// last 120s (120->240) grows 1520->1635, 7.57%: over threshold.
+			history: samples(0, 1000, 30, 1200, 60, 1350, 90, 1450, 120, 1520, 150, 1570, 180, 1605, 210, 1625, 240, 1635),
 			want:    false,
 		},
 		{
 			name: "genuinely flat across the trailing window",
-			// last 60s (75->135) grows 2010->2020, 0.5%: within threshold.
-			history: samples(0, 1000, 15, 1400, 30, 1700, 45, 1900, 60, 2000, 75, 2010, 90, 2015, 105, 2018, 120, 2019, 135, 2020),
+			// same curve continued to where it actually flattens: last 120s
+			// (240->360) grows 1635->1642, 0.43%: within threshold.
+			history: samples(0, 1000, 30, 1200, 60, 1350, 90, 1450, 120, 1520, 150, 1570, 180, 1605, 210, 1625, 240, 1635, 270, 1638, 300, 1640, 330, 1641, 360, 1642),
 			want:    true,
 		},
 		{
 			name: "a burst inside the window isn't hidden by a flat tail",
-			// the last two polls alone (60->75: 1605->1608) look flat, but a
-			// burst at t=45 is still inside the trailing 60s window, so this
-			// must not settle -- this is the exact bug the windowed check
-			// replaces a naive last-two-polls comparison to avoid.
-			history: samples(0, 1000, 15, 1005, 30, 1008, 45, 1600, 60, 1605, 75, 1608),
+			// the last two polls alone (120->135: 1611->1612) look flat, but
+			// a burst at t=45 is still inside the trailing 120s window, so
+			// this must not settle -- this is the exact bug the windowed
+			// check replaces a naive last-two-polls comparison to avoid.
+			history: samples(0, 1000, 15, 1005, 30, 1008, 45, 1600, 60, 1605, 75, 1608, 90, 1609, 105, 1610, 120, 1611, 135, 1612),
 			want:    false,
 		},
 		{
 			name: "a sudden drop at the end must not read as settled",
-			// mirrors a real observed run: footprint climbs cleanly for 80s
+			// mirrors a real observed run: footprint climbs cleanly for 120s
 			// (1500->1780->2180->2520, a normal daemon-startup curve) then
 			// the next poll drops back to 1480 -- a daemon crash/restart, or
 			// Measure's ps/top snapshots landing on either side of process
 			// churn and briefly undercounting. Comparing only the window's
 			// oldest point to its newest would see "growth" of
-			// (1480-1780)/1780 = -16.9%, trivially under the threshold, and
+			// (1480-2180)/2180 = -32%, trivially under the threshold, and
 			// wrongly call that settled. This is the actual bug that
 			// produced artificially low stock numbers before the spread
 			// check replaced a directional growth check.
-			history: samples(0, 1500, 20, 1780, 40, 2180, 60, 2520, 99, 1480),
+			history: samples(0, 1500, 40, 1780, 80, 2180, 120, 2520, 140, 1480),
 			want:    false,
 		},
 		{
 			name:    "a mid-window dip that fully recovers by the end must not read as settled either",
-			history: samples(0, 2000, 15, 2000, 30, 1000, 45, 2000, 60, 2000, 75, 2000),
+			history: samples(0, 2000, 20, 2000, 40, 1000, 60, 2000, 80, 2000, 100, 2000, 120, 2000, 140, 2000),
+			want:    false,
+		},
+		{
+			name: "a real still-climbing iOS 27.0 curve, slow enough to look deceptively flat over a short window",
+			// a fresh iPhone 17 Pro / iOS 27.0 boot measured: 1.83GB at
+			// bootstatus, 2.92GB at 60s, ~3.3GB at 4min (240s) and still
+			// climbing ~40MB every 30s there -- a creep that a shorter or
+			// looser window could mistake for a plateau. In MB: the trailing
+			// 120s (120->240) goes 3120->3300, 5.8% growth: comfortably over
+			// threshold, so this must not settle.
+			history: samples(0, 1830, 60, 2920, 120, 3120, 180, 3220, 240, 3300),
 			want:    false,
 		},
 	}
