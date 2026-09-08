@@ -12,25 +12,30 @@ https://github.com/user-attachments/assets/f4665e41-43b4-49cd-9388-3da533e9fd7b
 
 Measured with `simslim benchmark --runs 3` across four simulators spanning
 different device classes and iOS runtimes, on an Apple M1 Max running macOS
-26.6.2 / Xcode 26.2 (2026-09-08). Each row is the mean of 3 stock/slim
+26.6.2 / Xcode 26.2 (2026-09-09). Each row is the mean of 3 stock/slim
 measurement pairs, each pair sampled only once its footprint stops climbing
 (a fresh boot keeps starting daemons for minutes after `simctl` calls it
 booted; sampling immediately understates stock far more than slim, since
-stock has so much more left to start). "Ratio" is stock mean ÷ slim mean.
+stock has so much more left to start, though PR review caught that slim
+needs the same patience, just for less time). Every sample in this run
+genuinely settled within the 10-minute cap, not just hit it. "Ratio" is
+stock mean ÷ slim mean.
 
 | Simulator | iOS | Stock (mean, range) | Slim (mean, range) | Ratio |
 |---|---|---|---|---|
-| iPhone 16 Pro | 18.6 | 3.11 GB (3.06-3.21) | 1.13 GB (1.12-1.13) | 2.76x |
-| iPhone 17 Pro | 26.2 | 3.77 GB (3.65-3.90) | 1.08 GB (1.07-1.08) | 3.50x |
-| iPhone 17 Pro | 27.0 | 1.79 GB (1.50-1.95) | 0.62 GB (0.57-0.66) | 2.87x |
-| iPad Pro 13-inch (M5) | 26.4 | 3.02 GB (2.89-3.10) | 0.93 GB (0.92-0.95) | 3.25x |
-| **Fleet total (mean)** | n/a | **11.69 GB** | **3.75 GB** | **3.11x** |
+| iPhone 16 Pro | 18.6 | 3.20 GB (3.15-3.29) | 1.25 GB (1.24-1.25) | 2.57x |
+| iPhone 17 Pro | 26.2 | 3.81 GB (3.76-3.91) | 1.25 GB (1.22-1.28) | 3.06x |
+| iPhone 17 Pro | 27.0 | 2.04 GB (1.99-2.12) | 0.71 GB (0.67-0.74) | 2.87x |
+| iPad Pro 13-inch (M5) | 26.4 | 3.20 GB (3.13-3.31) | 1.10 GB (1.09-1.11) | 2.91x |
+| **Fleet total (mean)** | n/a | **12.25 GB** | **4.30 GB** | **2.85x** |
 
 The reduction varies by device, runtime, and by Mac: a PR reviewer measuring
 the same iOS 26.5/27.0 device classes on their own machine got 4.2x-4.4x once
-both legs were fully settled, higher than this table's 2.8x-3.5x. Absolute
-daemon footprints (and how many daemons a given account/network state spins
-up) aren't identical across every Mac and iOS build, so there's no single
+both legs were fully settled. Our slim numbers now land close to theirs
+(0.71 GB vs. their 0.74 GB on iOS 27.0), so the remaining gap is concentrated
+in stock, not a leftover sampling bug on the slim side: absolute daemon
+footprints (and how many daemons a given account/network state spins up)
+aren't identical across every Mac and iOS build, so there's no single
 multiplier that holds everywhere. Reproduce this on your own machine and
 fleet:
 
