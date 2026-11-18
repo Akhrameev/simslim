@@ -13,7 +13,7 @@ struct ContentView: View {
     return model.devices.filter {
       $0.name.localizedCaseInsensitiveContains(searchText)
         || $0.udid.localizedCaseInsensitiveContains(searchText)
-        || $0.osVersion.localizedCaseInsensitiveContains(searchText)
+        || $0.runtimeName.localizedCaseInsensitiveContains(searchText)
     }
   }
 
@@ -63,7 +63,7 @@ struct ContentView: View {
           } label: {
             ToolbarActionLabel("Slim", systemImage: "minus.circle")
           }
-          .disabled(model.selectionCount == 0 || model.isBusy)
+          .disabled(model.selectionCount == 0 || !model.canStartBatchOnSelection)
           .help("Apply the selected service profile")
         }
 
@@ -73,7 +73,7 @@ struct ContentView: View {
           } label: {
             ToolbarActionLabel("Unslim", systemImage: "plus.circle")
           }
-          .disabled(model.selectionCount == 0 || model.isBusy)
+          .disabled(model.selectionCount == 0 || !model.canStartBatchOnSelection)
           .help("Restore all SimSlim-managed services")
         }
       } else {
@@ -83,7 +83,7 @@ struct ContentView: View {
           } label: {
             ToolbarActionLabel("Clean Disk", systemImage: "externaldrive.badge.xmark")
           }
-          .disabled(!model.canCleanDiskSelection || model.isBusy)
+          .disabled(!model.canCleanDiskSelection || !model.canStartBatchOnSelection)
           .help("Permanently clean the selected disk categories")
         }
       }
@@ -99,7 +99,7 @@ struct ContentView: View {
         } label: {
           ToolbarActionLabel("Clone", systemImage: "plus.square.on.square")
         }
-        .disabled(singleSelectedDevice == nil || model.isBusy)
+        .disabled(singleSelectedDevice == nil || model.isSelectionBusy)
         .help("Clone for backup or general-purpose use")
 
         Button(role: .destructive) {
@@ -107,7 +107,7 @@ struct ContentView: View {
         } label: {
           ToolbarActionLabel("Erase", systemImage: "eraser")
         }
-        .disabled(model.selectionCount == 0 || model.isBusy)
+        .disabled(model.selectionCount == 0 || !model.canStartBatchOnSelection)
         .help("Erase Simulator")
 
         Button(role: .destructive) {
@@ -115,7 +115,7 @@ struct ContentView: View {
         } label: {
           ToolbarActionLabel("Delete", systemImage: "trash")
         }
-        .disabled(model.selectionCount == 0 || model.isBusy)
+        .disabled(model.selectionCount == 0 || !model.canStartBatchOnSelection)
         .help("Delete Simulator")
       }
 
@@ -131,7 +131,8 @@ struct ContentView: View {
           ToolbarActionLabel("Boot", systemImage: "play.fill")
         }
         .disabled(
-          singleSelectedDevice == nil || singleSelectedDevice?.isBooted == true || model.isBusy
+          singleSelectedDevice == nil || singleSelectedDevice?.isBooted == true
+            || model.isSelectionBusy
         )
         .help("Boot Simulator")
 
@@ -142,7 +143,8 @@ struct ContentView: View {
           ToolbarActionLabel("Kill", systemImage: "stop.fill")
         }
         .disabled(
-          singleSelectedDevice == nil || singleSelectedDevice?.isBooted == false || model.isBusy
+          singleSelectedDevice == nil || singleSelectedDevice?.isBooted == false
+            || model.isSelectionBusy
         )
         .help("Shut Down Simulator")
 
@@ -152,7 +154,7 @@ struct ContentView: View {
         } label: {
           ToolbarActionLabel("Rename", systemImage: "pencil")
         }
-        .disabled(singleSelectedDevice == nil || model.isBusy)
+        .disabled(singleSelectedDevice == nil || model.isSelectionBusy)
         .help("Rename Simulator")
       }
 
@@ -257,7 +259,7 @@ struct ContentView: View {
           Text("\(model.selectionCount) selected")
             .fontWeight(.semibold)
           if slimmingMode == .memory {
-            Text("· profile will disable \(model.disabledDaemonCount) services")
+            Text("· profile will disable up to \(model.disabledDaemonCount) services")
               .foregroundStyle(.secondary)
           } else if model.isAnalyzingDisk {
             Text("· analyzing disk usage…")
@@ -280,7 +282,9 @@ struct ContentView: View {
           ProgressView(value: progress.fraction)
             .progressViewStyle(.linear)
           HStack {
-            Text("\(progress.action) \(progress.currentName)…")
+            Text(progress.runningText)
+              .lineLimit(1)
+              .truncationMode(.tail)
             Spacer()
             Text("\(progress.completed) of \(progress.total)")
               .monospacedDigit()
@@ -313,12 +317,12 @@ struct ContentView: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
           } else if filteredDevices.isEmpty {
             ContentUnavailableView(
-              searchText.isEmpty ? "No iOS Simulators" : "No Matches",
-              systemImage: "iphone.slash",
+              searchText.isEmpty ? "No Simulators" : "No Matches",
+              systemImage: "rectangle.slash",
               description: Text(
                 searchText.isEmpty
-                  ? "Install an iOS Simulator runtime in Xcode."
-                  : "Try a different name, UDID, or iOS version.")
+                  ? "Install an iOS, tvOS, watchOS, or visionOS Simulator runtime in Xcode."
+                  : "Try a different name, UDID, or OS version.")
             )
             .frame(width: geometry.size.width, height: geometry.size.height)
           } else {
@@ -783,12 +787,14 @@ private struct ProfileSidebar: View {
       .fixedSize(horizontal: false, vertical: true)
 
       VStack(alignment: .leading, spacing: 7) {
-        Label("\(model.disabledDaemonCount) services will be disabled", systemImage: "circle")
+        Label("Up to \(model.disabledDaemonCount) services will be disabled", systemImage: "circle")
           .font(.subheadline.weight(.semibold))
           .foregroundStyle(.green)
-        Text("Core workflow and deadlock-prone daemons are never disabled.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+        Text(
+          "Core workflow and deadlock-prone daemons are never disabled. HomeKit’s homed stays enabled on watchOS, and the asset service mobileassetd on visionOS."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
       }
       .padding(12)
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -819,7 +825,7 @@ private struct ProfileSidebar: View {
         }
         .buttonStyle(.borderless)
         .controlSize(.small)
-        .disabled(model.selectionCount == 0 || model.isBusy)
+        .disabled(model.selectionCount == 0 || !model.canStartBatchOnSelection)
         .help("Refresh disk usage for the selected simulators")
       }
 
@@ -1254,10 +1260,10 @@ private struct SimulatorRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(model.isBusy)
+        .disabled(model.isBusy(device))
 
         HStack(spacing: 10) {
-          Image(systemName: "iphone")
+          Image(systemName: device.deviceSymbol)
             .font(.system(size: 19, weight: .medium))
             .foregroundStyle(device.isBooted ? Color.blue : Color.secondary)
             .frame(width: 35, height: 35)
@@ -1291,7 +1297,7 @@ private struct SimulatorRow: View {
         }
         .frame(minWidth: 255, maxWidth: .infinity, alignment: .leading)
 
-        Text("iOS \(device.osVersion)")
+        Text(device.runtimeName)
           .font(.subheadline)
           .frame(width: 74, alignment: .leading)
 
@@ -1345,12 +1351,14 @@ private struct SimulatorRow: View {
             } label: {
               Label("Slim Simulator", systemImage: "minus.circle")
             }
+            .disabled(model.isBatchRunning)
 
             Button {
               Task { await model.restoreOriginalServices(for: device) }
             } label: {
               Label("Unslim Simulator", systemImage: "plus.circle")
             }
+            .disabled(model.isBatchRunning)
           }
 
           Section("Disk Space") {
@@ -1359,7 +1367,7 @@ private struct SimulatorRow: View {
             } label: {
               Label("Clean Disk Data", systemImage: "externaldrive.badge.xmark")
             }
-            .disabled(!model.canCleanDisk([device]))
+            .disabled(!model.canCleanDisk([device]) || model.isBatchRunning)
           }
 
           Section("Simulator") {
@@ -1417,12 +1425,14 @@ private struct SimulatorRow: View {
             } label: {
               Label("Erase Simulator", systemImage: "eraser")
             }
+            .disabled(model.isBatchRunning)
 
             Button(role: .destructive) {
               managementSheet = .delete([device])
             } label: {
               Label("Delete Simulator", systemImage: "trash")
             }
+            .disabled(model.isBatchRunning)
           }
         } label: {
           Image(systemName: "ellipsis")
@@ -1430,7 +1440,7 @@ private struct SimulatorRow: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .disabled(model.isBusy)
+        .disabled(model.isBusy(device))
         .frame(width: 28)
       }
 

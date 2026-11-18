@@ -12,6 +12,7 @@ struct SimulatorDevice: Decodable, Identifiable, Equatable {
   let name: String
   let state: String
   let osVersion: String
+  let platform: String?
   let managedDisabled: Int?
   let managedTotal: Int
   let statusError: String?
@@ -20,6 +21,15 @@ struct SimulatorDevice: Decodable, Identifiable, Equatable {
 
   var id: String { udid }
   var isBooted: Bool { state == "Booted" }
+  var runtimeName: String { "\(platform ?? "iOS") \(osVersion)" }
+  var deviceSymbol: String {
+    switch platform {
+    case "tvOS": return "appletv"
+    case "watchOS": return "applewatch"
+    case "visionOS": return "visionpro"
+    default: return "iphone"
+    }
+  }
 }
 
 struct SlimCategory: Decodable, Identifiable, Equatable {
@@ -176,12 +186,17 @@ enum ServiceSlimState: Equatable {
 struct BatchProgress: Equatable {
   let completed: Int
   let total: Int
-  let currentName: String
+  /// Names of the simulators in flight right now; a batch runs more than one.
+  let running: [String]
   let action: String
 
   var fraction: Double {
     guard total > 0 else { return 0 }
     return Double(completed) / Double(total)
+  }
+
+  var runningText: String {
+    running.isEmpty ? "\(action)…" : "\(action) \(running.joined(separator: ", "))…"
   }
 }
 
