@@ -58,6 +58,20 @@ swift build -c release
 .build/release/simslim --version
 ```
 
+### Homebrew
+
+```sh
+brew tap akhrameev/tap
+brew trust --formula akhrameev/tap/simslim
+brew install simslim
+```
+
+Homebrew 6 and later refuse to load formulae from a third-party tap until you trust them, so the
+`brew trust` step is required; it trusts only this one formula, not the whole tap. Revoke it with
+`brew untrust --formula akhrameev/tap/simslim`. The formula installs the prebuilt Apple Silicon
+binary described below, and it conflicts with upstream's `mobai-app/tap/simslim` because both
+install a `simslim` binary.
+
 ### Prebuilt binary
 
 Tagged releases attach `simslim-<tag>-macos-arm64.tar.gz` (Apple Silicon only) and its `.sha256`
