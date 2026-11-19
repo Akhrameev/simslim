@@ -2,11 +2,19 @@ name: ci
 
 on:
   pull_request:
+    paths-ignore: ["**.md", "docs/**"]
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
 
 permissions:
   contents: read
+
+# A new push to a PR cancels the superseded run. Pushes to main queue instead,
+# so every main commit keeps a result.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   swift:
